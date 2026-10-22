@@ -17,3 +17,7 @@ signal-hook = "0.3"
 # Instance records and Herdr's JSON API.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Atomic record publishing and private test fixtures.
+tempfile = "3"
+# Read hand-written Herdr keybindings without rewriting the user's config.
+toml = "0.8"

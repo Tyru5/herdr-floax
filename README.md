@@ -164,7 +164,11 @@ command = "herdr-floax.instances"
 description = "List and navigate Floax sessions"
 ```
 
-The installer preserves existing bindings. If you installed the earlier picker
+The installer uses the built plugin binary to parse TOML and preserves existing
+bindings by command, including hand-written blocks without marker comments.
+It refuses assigned keys before appending anything and leaves existing config
+text unchanged. Inline-array keybinding layouts cannot be extended automatically;
+add the missing binding to that array by hand instead. If you installed the earlier picker
 default `prefix+F`, edit its `herdr-floax.instances` block to use `prefix+i`.
 
 Reload herdr's config (or restart herdr) after changing it.

@@ -153,13 +153,19 @@ fn floating_panes(panes: &[Value], dir: &Path) -> Vec<Value> {
 fn remember_pane(pane: &Value, dir: &Path) -> io::Result<()> {
     let id = text(pane, "pane_id")?;
     // Store stable identity only. Labels, cwd, and focus can all change.
-    fs::write(
-        dir.join(format!("pane-{}.json", key(id))),
-        serde_json::to_vec(&json!({
+    let mut pending = tempfile::NamedTempFile::new_in(dir)?;
+    serde_json::to_writer(
+        &mut pending,
+        &json!({
             "pane_id": id,
             "terminal_id": text(pane, "terminal_id")?,
-        }))?,
-    )
+        }),
+    )?;
+    // Concurrent registration and inventory reads see either complete version.
+    pending
+        .persist(dir.join(format!("pane-{}.json", key(id))))
+        .map_err(|error| error.error)?;
+    Ok(())
 }
 
 pub fn register_view() -> io::Result<()> {
@@ -477,8 +483,8 @@ mod tests {
 
     #[test]
     fn inventory_counts_live_detached_shells_and_survives_renames() {
-        let dir = std::env::temp_dir().join(format!("floax-inventory-{}", std::process::id()));
-        fs::create_dir_all(&dir).unwrap();
+        let temp = tempfile::tempdir().unwrap();
+        let dir = temp.path().to_owned();
         let mut live = lock(&dir.join("session-live.json")).unwrap();
         live.write_all(br#"{"workspace_id":"w2","cwd":"/projects/api","backend":"tmux"}"#)
             .unwrap();
@@ -487,8 +493,7 @@ mod tests {
             br#"{"workspace_id":"w1","cwd":"/old","backend":"tmux"}"#,
         )
         .unwrap();
-        let pane =
-            json!({"pane_id":"w2:p3","terminal_id":"term3","workspace_id":"w2","label":"renamed"});
+        let pane = json!({"pane_id":"w2:p3","terminal_id":"term3".repeat(4096),"workspace_id":"w2","label":"renamed"});
         remember_pane(&pane, &dir).unwrap();
         let workspaces = vec![json!({"workspace_id":"w2","label":"API"})];
         let open = inventory(&dir, &workspaces, std::slice::from_ref(&pane)).unwrap();
@@ -496,6 +501,21 @@ mod tests {
         assert_eq!(open[0].pane_id.as_deref(), Some("w2:p3"));
         assert_eq!(open[0].workspace_label, "API");
         assert_eq!(open[0].cwd, "/projects/api");
+        // Registration and the opening action can publish the same view
+        // concurrently. Readers must always see a complete pane identity.
+        std::thread::scope(|scope| {
+            for _ in 0..2 {
+                scope.spawn(|| {
+                    for _ in 0..200 {
+                        remember_pane(&pane, &dir).unwrap();
+                    }
+                });
+            }
+            for _ in 0..400 {
+                let current = inventory(&dir, &workspaces, std::slice::from_ref(&pane)).unwrap();
+                assert_eq!(current[0].pane_id.as_deref(), Some("w2:p3"));
+            }
+        });
         let detached = inventory(&dir, &workspaces, &[]).unwrap();
         assert_eq!(detached.len(), 1);
         assert!(detached[0].pane_id.is_none());
@@ -506,6 +526,5 @@ mod tests {
             .is_none());
         drop(live);
         assert!(inventory(&dir, &workspaces, &[]).unwrap().is_empty());
-        fs::remove_dir_all(dir).unwrap();
     }
 }

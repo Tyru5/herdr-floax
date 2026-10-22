@@ -26,6 +26,7 @@
 
 mod config;
 mod instances;
+mod keybindings;
 mod ui;
 
 use std::io::{Read, Write};
@@ -70,6 +71,7 @@ fn pty_size(inner: Rect) -> PtySize {
 
 fn main() -> std::io::Result<()> {
     match std::env::args().nth(1).as_deref() {
+        Some("--install-keybindings") => return keybindings::install(),
         Some("--toggle") => return instances::toggle(),
         Some("--instances-open") => return instances::open_picker(),
         Some("--instances") => return instances::picker(),

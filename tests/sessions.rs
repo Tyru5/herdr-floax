@@ -23,8 +23,8 @@ fn output(dir: &Path, socket: &str, argument: &str) -> String {
 
 #[test]
 fn live_session_backend_and_names_are_scoped_to_the_server() {
-    let dir = std::env::temp_dir().join(format!("floax-session-test-{}", std::process::id()));
-    fs::create_dir_all(&dir).unwrap();
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path().to_owned();
     // Only socket metadata is used for namespacing. No Herdr server needed.
     fs::write(dir.join("server-a"), "").unwrap();
     fs::write(dir.join("server-b"), "").unwrap();
@@ -55,14 +55,14 @@ fn live_session_backend_and_names_are_scoped_to_the_server() {
     assert!(child.wait().unwrap().success());
     // The stale JSON is still there, but it must no longer describe a live shell.
     assert_eq!(output(&dir, "server-a", "--session-backend"), "");
-    fs::remove_dir_all(dir).unwrap();
 }
 
 #[test]
 fn view_input_eof_does_not_send_eof_to_the_embedded_shell() {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
 
-    let dir = std::env::temp_dir().join(format!("floax-input-test-{}", std::process::id()));
+    let temp = tempfile::tempdir().unwrap();
+    let dir = temp.path().to_owned();
     fs::create_dir_all(dir.join("scripts")).unwrap();
     fs::write(dir.join("socket"), "").unwrap();
     fs::write(
@@ -131,7 +131,6 @@ fn view_input_eof_does_not_send_eof_to_the_embedded_shell() {
     let _ = child.wait();
     drop(pair.master);
     drain.join().unwrap();
-    fs::remove_dir_all(dir).unwrap();
     assert!(started, "embedded shell never started");
     assert!(!exited, "view input EOF must not exit the embedded shell");
 }
