@@ -75,6 +75,12 @@ fn main() -> std::io::Result<()> {
         Some("--toggle") => return instances::toggle(),
         Some("--instances-open") => return instances::open_picker(),
         Some("--instances") => return instances::picker(),
+        Some("--finish-navigation") => {
+            let target = std::env::args()
+                .nth(2)
+                .ok_or_else(|| io_err("Missing destination pane"))?;
+            return instances::finish_navigation(&target);
+        }
         Some("--session-key") => {
             println!("{}", instances::session_key()?);
             return Ok(());

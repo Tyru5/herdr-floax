@@ -7,6 +7,7 @@
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::{self, Read, Write};
 use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -253,7 +254,7 @@ fn focus_pane(id: &str) -> io::Result<()> {
     Ok(())
 }
 
-fn open_floating(target: &str, cwd: &str, dir: &Path) -> io::Result<()> {
+fn open_floating(target: &str, cwd: &str, dir: &Path) -> io::Result<String> {
     let result = api(&[
         "plugin",
         "pane",
@@ -274,7 +275,7 @@ fn open_floating(target: &str, cwd: &str, dir: &Path) -> io::Result<()> {
     ])?;
     let pane = &result["plugin_pane"]["pane"];
     remember_pane(pane, dir)?;
-    focus_pane(text(pane, "pane_id")?)
+    Ok(text(pane, "pane_id")?.into())
 }
 
 pub fn toggle() -> io::Result<()> {
@@ -299,11 +300,12 @@ pub fn toggle() -> io::Result<()> {
             .find(|p| p["focused"] == true)
             .or_else(|| panes.first())
             .ok_or_else(|| io_err("Workspace has no target pane"))?;
-        open_floating(
+        let id = open_floating(
             text(target, "pane_id")?,
             target["cwd"].as_str().unwrap_or(""),
             &dir,
         )?;
+        focus_pane(&id)?;
     }
     Ok(())
 }
@@ -337,8 +339,8 @@ fn navigate(instance: &Instance) -> io::Result<()> {
             "Workspace was closed. This session cannot be reattached here.",
         ));
     }
-    if let Some(id) = fresh.pane_id {
-        focus_pane(&id)?;
+    let target = if let Some(id) = fresh.pane_id {
+        id
     } else {
         let dir = state_dir()?;
         let _guard = lock(&dir.join(format!("toggle-{}", key(&fresh.workspace_id))))?;
@@ -346,15 +348,42 @@ fn navigate(instance: &Instance) -> io::Result<()> {
         let result = api(&["pane", "list", "--workspace", &fresh.workspace_id])?;
         let panes = array(&result, "panes")?;
         if let Some(pane) = floating_panes(panes, &dir).first() {
-            focus_pane(text(pane, "pane_id")?)?;
+            text(pane, "pane_id")?.into()
         } else {
             let target = panes
                 .first()
                 .ok_or_else(|| io_err("Workspace has no target pane"))?;
-            open_floating(text(target, "pane_id")?, &fresh.cwd, &dir)?;
+            open_floating(text(target, "pane_id")?, &fresh.cwd, &dir)?
         }
+    };
+    let mut command = Command::new(std::env::current_exe()?);
+    command.args(["--finish-navigation", &target]);
+    // Herdr kills the picker's entire OS session on close. The helper must
+    // survive that close to zoom AFTER split removal clears the tab's zoom.
+    // SAFETY: setsid is async-signal-safe; no allocations or locks after fork.
+    unsafe {
+        command.pre_exec(|| {
+            if libc::setsid() == -1 {
+                return Err(io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    // Keep the picker alive until the helper closes it. Pipes isolate helper
+    // I/O from the dying PTY and let pre-close failures remain visible here.
+    let output = command.output()?;
+    if !output.status.success() {
+        return Err(io_err(String::from_utf8_lossy(&output.stderr)));
     }
     Ok(())
+}
+
+pub fn finish_navigation(target: &str) -> io::Result<()> {
+    let picker = std::env::var("HERDR_PANE_ID").map_err(io_err)?;
+    // A successful close response is the layout-removal barrier. No sleep or
+    // process-exit polling: those can race Herdr's asynchronous pane cleanup.
+    api(&["plugin", "pane", "close", &picker])?;
+    focus_pane(target)
 }
 
 fn clean(text: &str) -> String {
