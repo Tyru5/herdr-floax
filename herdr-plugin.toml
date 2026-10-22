@@ -26,9 +26,9 @@ platforms = ["linux", "macos"]
 [[build]]
 command = ["cargo", "build", "--release"]
 
-# The floating pane: the floax TUI app hosting the shell PTY. `title` becomes
-# the pane `label`, which toggle-floating.sh uses to find our pane within a
-# workspace. Placement is `split` — the toggle script zooms the pane so the app
+# The floating pane: the floax TUI app hosting the shell PTY. Ownership is
+# recorded by pane/terminal ID, so renaming the label is safe.
+# Placement is `split` — the toggle action zooms the pane so the app
 # fills the workspace and the drawn box appears centered over it. (herdr's
 # `overlay`/`zoomed` placements are transient views that are torn down the
 # moment the invoking keybinding action completes, so they can't be used here.)
@@ -44,4 +44,16 @@ command = ["./target/release/herdr-floax"]
 id = "toggle"
 title = "Toggle floating pane"
 description = "Open, reveal, or dismiss the floating scratch shell for this workspace."
-command = ["bash", "scripts/toggle-floating.sh"]
+command = ["./target/release/herdr-floax", "--toggle"]
+
+[[panes]]
+id = "instances"
+title = "Floax instances"
+placement = "split"
+command = ["./target/release/herdr-floax", "--instances"]
+
+[[actions]]
+id = "instances"
+title = "Choose floating shell"
+description = "List running Floax sessions across this Herdr server and jump or reattach."
+command = ["./target/release/herdr-floax", "--instances-open"]

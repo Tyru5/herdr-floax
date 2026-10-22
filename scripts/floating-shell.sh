@@ -10,23 +10,34 @@
 # NOTE: the starting directory arrives via $HERDR_FLOAX_CWD, not herdr's --cwd
 # flag. In herdr 0.7.1, `plugin pane open --cwd <path>` makes the new plugin
 # pane exit immediately (it vanishes), so we set the directory here instead.
-set -u
+set -euo pipefail
 
-shell="${SHELL:-/bin/sh}"
-ws="${HERDR_WORKSPACE_ID:-default}"
 state_dir="${HERDR_PLUGIN_STATE_DIR:-${TMPDIR:-/tmp}}"
+bin="${HERDR_PLUGIN_ROOT:-.}/target/release/herdr-floax"
+session="$("$bin" --session-key)"
+backend="$("$bin" --session-backend)"
 
 cd "${HERDR_FLOAX_CWD:-$HOME}" 2>/dev/null || cd "$HOME" 2>/dev/null || true
 
+# Keep using a live session's original backend if PATH has changed.
 # dtach: attach-or-create (-A); -z disables the suspend key.
-if command -v dtach >/dev/null 2>&1; then
-  exec dtach -A "$state_dir/floax-$ws.dtach" -z "$shell" -l
+if [ "$backend" = dtach ] || { [ -z "$backend" ] && command -v dtach >/dev/null 2>&1; }; then
+  exec dtach -A "$state_dir/$session.dtach" -z "$bin" --session-shell dtach
 # abduco: -A attach-or-create a session named per workspace.
-elif command -v abduco >/dev/null 2>&1; then
-  exec abduco -A "floax-$ws" "$shell" -l
+elif [ "$backend" = abduco ] || { [ -z "$backend" ] && command -v abduco >/dev/null 2>&1; }; then
+  exec abduco -A "$session" "$bin" --session-shell abduco
 # tmux: new-session-or-attach to a per-workspace session in its own server.
-elif command -v tmux >/dev/null 2>&1; then
-  exec tmux -L "herdr-floax" new-session -A -s "$ws" "$shell -l"
+elif [ "$backend" = tmux ] || { [ -z "$backend" ] && command -v tmux >/dev/null 2>&1; }; then
+  # An existing tmux server retains the environment from its first launch.
+  # Pass this workspace's context explicitly to each new session.
+  context=()
+  while IFS= read -r name; do
+    case "$name" in
+      HERDR_*|SHELL) context+=("$name=${!name}") ;;
+    esac
+  done < <(compgen -e)
+  exec tmux -L "herdr-floax" new-session -A -s "$session" \
+    env "${context[@]}" "$bin" --session-shell tmux
 fi
 
-exec "$shell" -l
+exec "$bin" --session-shell plain

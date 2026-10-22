@@ -1,7 +1,7 @@
 //! herdr-floax — a floating scratch shell for herdr, à la tmux-floax.
 //!
 //! Runs as one persistent herdr pane (opened as a zoomed split by the toggle
-//! script) and draws a centered, sized box hosting a real shell PTY. herdr has
+//! action) and draws a centered, sized box hosting a real shell PTY. herdr has
 //! no sized floating-pane primitive that survives a keybinding — its
 //! `overlay`/`zoomed` placements are transient views torn down when the
 //! invoking action finishes — so the floating look is drawn here, in-process,
@@ -25,6 +25,7 @@
 //! survives the pane being closed on dismiss and re-attaches on reopen.
 
 mod config;
+mod instances;
 mod ui;
 
 use std::io::{Read, Write};
@@ -68,6 +69,26 @@ fn pty_size(inner: Rect) -> PtySize {
 }
 
 fn main() -> std::io::Result<()> {
+    match std::env::args().nth(1).as_deref() {
+        Some("--toggle") => return instances::toggle(),
+        Some("--instances-open") => return instances::open_picker(),
+        Some("--instances") => return instances::picker(),
+        Some("--session-key") => {
+            println!("{}", instances::session_key()?);
+            return Ok(());
+        }
+        Some("--session-backend") => {
+            println!("{}", instances::session_backend()?);
+            return Ok(());
+        }
+        Some("--session-shell") => {
+            let backend = std::env::args().nth(2).unwrap_or_else(|| "plain".into());
+            return instances::session_shell(&backend);
+        }
+        Some(other) => return Err(io_err(format!("Unknown argument: {other}"))),
+        None => {}
+    }
+    instances::register_view()?;
     let cfg = config::Config::load();
 
     let (cols, rows) = ratatui::crossterm::terminal::size().unwrap_or((80, 24));
@@ -136,6 +157,10 @@ fn main() -> std::io::Result<()> {
                     }
                 }
             }
+            // portable-pty's writer destructor sends newline + VEOF. On view
+            // dismissal that would reach the detached shell and exit it.
+            // Keep this descriptor until process exit instead of injecting EOF.
+            std::mem::forget(writer);
         });
     }
 

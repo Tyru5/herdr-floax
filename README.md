@@ -8,6 +8,13 @@ instance per workspace. The floating pane is a real, fully-interactive herdr
 pane (your login shell) — you can do anything in it that you can in a normal
 pane. Its session persists across toggles.
 
+**`prefix+i` opens the instance picker.** It shows the total number of running
+shell sessions in the connected Herdr server, including dismissed sessions,
+with each workspace's name and ID, open/detached state, backend, and launch
+directory. Use **↑/↓** or **j/k** to select, **Enter** to jump or reattach,
+**r** to refresh, and **Esc** or **q** to close. The directory is where the
+session started, not necessarily the shell's current directory.
+
 ## How it works
 
 Pressing the key toggles one floating pane per workspace:
@@ -25,7 +32,7 @@ live terminal instead of static text. Everything you can do in a normal pane
 works in the box: vim, REPLs, paste, colors, resize. Input is raw byte
 passthrough, so no key handling is lost in translation.
 
-The host pane itself is a herdr **split** that the toggle script immediately
+The host pane itself is a herdr **split** that the toggle action immediately
 zooms, so the box appears centered over the whole workspace. herdr's
 `overlay`/`zoomed` placements can't be used from a keybinding — herdr tears
 those transient views down the instant the invoking action finishes — and the
@@ -40,6 +47,31 @@ constraint.
   Without one, it degrades to a plain login shell (fresh each reopen).
 - **Backdrop:** see [Limitations](#limitations) — the area around the box uses
   your terminal background, not your live panes dimmed behind it.
+
+The picker uses the same split-then-zoom approach, so it works without the
+newer Herdr popup API. It never creates a shell just by opening the list.
+Selecting an open session focuses and maximizes its pane. Selecting a detached
+session opens a view in its original workspace and reattaches the running
+shell. Closing the picker removes only its temporary split.
+Herdr's public focus API navigates all attached UI clients in the same server;
+it cannot target only the client that invoked the plugin.
+
+Session supervisors hold OS file locks while their shells run. Unlocked
+records do not count, even after a crash. Pane ownership uses pane and terminal
+IDs rather than titles, so renaming a Floax pane does not break discovery.
+Sessions are namespaced by Herdr socket identity and workspace ID. Other
+Herdr servers and sessions left behind by a restarted server are not included.
+A still-running shell whose workspace was closed is listed as `workspace
+closed`, but cannot be navigated to. Without a multiplexer, plain shells count
+only while running and cannot survive dismissal.
+
+**Upgrading from 0.2.0's original session naming:** exit existing Floax shells
+before upgrading. Old detached sessions are not adopted automatically because
+their workspace-only names cannot safely identify the owning Herdr server.
+Reopening after the upgrade starts tracked, server-scoped sessions. Re-run the
+keybinding installer to add the picker binding; it preserves the existing
+toggle binding. If the preserved toggle already uses `prefix+i`, choose another
+picker key with the installer's second argument.
 
 ## Limitations
 
@@ -100,17 +132,20 @@ herdr plugin link /path/to/herdr-floax
 bash /path/to/herdr-floax/scripts/install-keybinding.sh
 ```
 
-Requires a Rust toolchain (`cargo`) to build, and
-[`jq`](https://jqlang.github.io/jq/) for the toggle script
-(`brew install jq` / `apt install jq`).
+Requires Rust 1.89 or newer (`cargo`) to build. The GitHub installation command
+above uses [`jq`](https://jqlang.github.io/jq/); runtime actions do not need it.
+For session persistence, install `dtach`, `abduco`, or tmux 3.2 or newer.
 
 ## Keybinding
 
-The default is **`prefix+f`**. Change it any of these ways:
+The defaults are **`prefix+f`** for toggle and **`prefix+i`** for the picker.
+Change them any of these ways:
 
 ```sh
 scripts/install-keybinding.sh prefix+g          # pass a key
 HERDR_FLOAX_KEY=prefix+g scripts/install-keybinding.sh
+scripts/install-keybinding.sh prefix+g prefix+G # toggle, then picker
+HERDR_FLOAX_INSTANCES_KEY=prefix+G scripts/install-keybinding.sh
 ```
 
 …or add/edit the block by hand in `~/.config/herdr/config.toml`:
@@ -121,7 +156,16 @@ key = "prefix+f"
 type = "plugin_action"
 command = "herdr-floax.toggle"
 description = "Toggle floating pane"
+
+[[keys.command]]
+key = "prefix+i"
+type = "plugin_action"
+command = "herdr-floax.instances"
+description = "List and navigate Floax sessions"
 ```
+
+The installer preserves existing bindings. If you installed the earlier picker
+default `prefix+F`, edit its `herdr-floax.instances` block to use `prefix+i`.
 
 Reload herdr's config (or restart herdr) after changing it.
 
@@ -129,9 +173,8 @@ Reload herdr's config (or restart herdr) after changing it.
 
 | File | Purpose |
 |---|---|
-| `herdr-plugin.toml` | Manifest: the `[[panes]]` entry (the TUI app) + the `toggle` `[[actions]]` + `[[build]]`. |
-| `src/` | The Rust TUI: centered box, embedded shell PTY, vt100 rendering, resize. |
-| `scripts/toggle-floating.sh` | The action: open ↔ reveal ↔ dismiss, per workspace. |
+| `herdr-plugin.toml` | Manifest: floating shell and picker panes, toggle and instances actions, build. |
+| `src/` | Rust TUI, embedded shell PTY, session inventory, toggle, and picker navigation. |
 | `scripts/floating-shell.sh` | The embedded program: a login shell (detach-wrapped when possible). |
-| `scripts/install-keybinding.sh` | Idempotently installs the default, overridable keybind. |
+| `scripts/install-keybinding.sh` | Idempotently installs both overridable keybinds, including upgrades. |
 | `floax.conf.example` | Size/hint configuration template. |
