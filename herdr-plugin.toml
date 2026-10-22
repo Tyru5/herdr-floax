@@ -17,7 +17,7 @@
 
 id = "herdr-floax"
 name = "herdr-floax"
-version = "0.2.0"
+version = "0.3.0"
 description = "Toggle a floating scratch shell (sized popup) for the current workspace, à la tmux-floax."
 min_herdr_version = "0.7.0"
 platforms = ["linux", "macos"]
