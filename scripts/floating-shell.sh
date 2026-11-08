@@ -28,6 +28,14 @@ elif [ "$backend" = abduco ] || { [ -z "$backend" ] && command -v abduco >/dev/n
   exec abduco -A "$session" "$bin" --session-shell abduco
 # tmux: new-session-or-attach to a per-workspace session in its own server.
 elif [ "$backend" = tmux ] || { [ -z "$backend" ] && command -v tmux >/dev/null 2>&1; }; then
+  # Sessions created from this client (e.g. prefix + :new) inherit this via
+  # update-environment, so the picker can nest them under this root.
+  export HERDR_FLOAX_ROOT="$session"
+  # The picker can ask a new view to show one of those sessions instead.
+  if [ -n "${HERDR_FLOAX_ATTACH:-}" ] &&
+    tmux -L herdr-floax has-session -t "$HERDR_FLOAX_ATTACH" 2>/dev/null; then
+    exec tmux -L herdr-floax attach-session -t "$HERDR_FLOAX_ATTACH"
+  fi
   # An existing tmux server retains the environment from its first launch.
   # Pass this workspace's context explicitly to each new session.
   context=()
@@ -36,8 +44,10 @@ elif [ "$backend" = tmux ] || { [ -z "$backend" ] && command -v tmux >/dev/null 
       HERDR_*|SHELL) context+=("$name=${!name}") ;;
     esac
   done < <(compgen -e)
+  # A fixed array index keeps the option idempotent across views.
   exec tmux -L "herdr-floax" new-session -A -s "$session" \
-    env "${context[@]}" "$bin" --session-shell tmux
+    env "${context[@]}" "$bin" --session-shell tmux \; \
+    set-option -g 'update-environment[99]' HERDR_FLOAX_ROOT
 fi
 
 exec "$bin" --session-shell plain

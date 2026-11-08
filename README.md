@@ -15,6 +15,16 @@ directory. Use **↑/↓** or **j/k** to select, **Enter** to jump or reattach,
 **r** to refresh, and **Esc** or **q** to close. The directory is where the
 session started, not necessarily the shell's current directory.
 
+With the tmux backend, extra windows (`C-b c`) and extra sessions (`C-b :new`)
+created inside a Floax shell appear as nested rows under their workspace's
+entry, with each window's name, directory, and which one is showing. Selecting
+a nested row shows that window in the view, reopening the view first when it
+is detached. A session stays listed while any of its windows is alive, even
+after its first shell exits. A view opened before upgrading does not tag the
+sessions it creates; dismiss and reopen it once. If another workspace's view
+switches into a nested session, that session moves under the other workspace.
+Orphaned sessions, whose root session has ended, are not listed.
+
 ## How it works
 
 Pressing the key toggles one floating pane per workspace:
